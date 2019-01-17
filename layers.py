@@ -84,3 +84,38 @@ class Cell(nn.Module):
         concat = torch.cat([top, top2, middle, bottom2, bottom])
 
         return concat
+
+
+class ASPP(nn.Module):
+    def __init__(self, in_channels, out_channels, paddings, dilations):
+        #todo depthwise separable conv
+        super(ASPP, self).__init__()
+        self.conv11 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False,),
+                                     nn.BatchNorm2d(256))
+        self.conv33_1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3,
+                                                padding=paddings[0], dilation=dilations[0], bias=False,),
+                                      nn.BatchNorm2d(256))
+        self.conv33_2 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3,
+                                                padding=paddings[1], dilation=dilations[1], bias=False,),
+                                      nn.BatchNorm2d(256))
+        self.conv33_3 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3,
+                                                padding=paddings[2], dilation=dilations[2], bias=False,),
+                                      nn.BatchNorm2d(256))
+        self.concate_conv = nn.Sequential(nn.Conv2d(out_channels*5, out_channels, 1, bias=False),
+                                      nn.BatchNorm2d(256))
+        # self.upsample = nn.Upsample(mode='bilinear', align_corners=True)
+    def forward(self, x):
+        conv11 = self.conv11(x)
+        conv33_1 = self.conv33_1(x)
+        conv33_2 = self.conv33_2(x)
+        conv33_3 = self.conv33_3(x)
+
+        # image pool and upsample
+        image_pool = nn.AvgPool2d(kernel_size=x.size()[2:])
+        image_pool = image_pool(x)
+        image_pool = self.conv11(image_pool)
+        upsample = nn.Upsample(size=x.size()[2:], mode='bilinear', align_corners=True)
+        upsample = upsample(image_pool)
+
+        # concate
+        concate = torch.cat([conv11, conv33_1, conv33_2, conv33_3, upsample], dim=1)
