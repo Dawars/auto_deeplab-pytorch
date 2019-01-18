@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import layers
 
+
+
 class AutoDeeplab(nn.Module):
     def __init__(self, in_channels, out_channels, layout, cell, activation=nn.ReLU6, upsample_at_end=True):
         """
@@ -23,13 +25,13 @@ class AutoDeeplab(nn.Module):
                 nn.Conv2d(64, 64, 3, padding=1),
                 nn.BatchNorm2d(64),
                 activation()
-        ))
+        ).cuda())
 
         self.cells.append(nn.Sequential(
             nn.Conv2d(64, 128, 3, stride=2, padding=1),
             nn.BatchNorm2d(128),
             activation()
-        ))
+        ).cuda())
 
 
         #self.stem = nn.Sequential(
@@ -41,7 +43,7 @@ class AutoDeeplab(nn.Module):
         channels = 128
         assert layout[0] == 2
         for i, depth in enumerate(layout):
-            layer = [cell(channels, channels)]
+            layer = []
             # todo dilation?
 
             if i != len(layout) - 1:
@@ -57,7 +59,8 @@ class AutoDeeplab(nn.Module):
                     layer.append(nn.Conv2d(channels, channels // 2, 1))
                     channels = channels // 2
 
-            self.cells.append(nn.Sequential(*layer).cuda())
+            # The cell is held outside the Sequential as it needs two arguments, while Sequential only accepts one
+            self.cells.append((cell(channels, channels), nn.Sequential(*layer).cuda()))
 
         # Pool, then reduce channels to the desired value
         self.pool = nn.Sequential(
@@ -67,7 +70,6 @@ class AutoDeeplab(nn.Module):
 
         self.upsampler = nn.Upsample(scale_factor=2 ** layout[-1], mode="bilinear")
 
-
     def forward(self, x):
         x = self.initial_stem(x)
 
@@ -75,8 +77,9 @@ class AutoDeeplab(nn.Module):
         prev_hs = [self.cells[0](x)]
         prev_hs.append(self.cells[1](prev_hs[0]))
 
-        for i, layer in enumerate(self.cells, 2):
-            curr = layer(prev_hs[-1], prev_hs[-2])
+        for i, layer in enumerate(self.cells[2:], 2):
+            curr = layer[0](prev_hs[-1], prev_hs[-2])  # Execute cell
+            curr = layer[1](curr)  # Execute rest of the layer
             prev_hs[-2] = prev_hs[-1]
             prev_hs[-1] = curr
 
@@ -91,4 +94,5 @@ if __name__ == '__main__':
     layout = [2, 2, 2, 2, 3, 4, 3, 4, 4, 5, 5, 4, 3]
     model = AutoDeeplab(3, 3, layout, layers.Cell)
     print(model)
-
+    x = torch.rand((1, 3, 100, 100)).cuda()
+    model(x)
