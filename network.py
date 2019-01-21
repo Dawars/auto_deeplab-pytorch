@@ -5,7 +5,7 @@ import layers
 
 
 class AutoDeeplab(nn.Module):
-    def __init__(self, in_channels, out_channels, layout, cell, activation=nn.ReLU6, upsample_at_end=True):
+    def __init__(self, in_channels, out_channels, layout, cell=layers.Cell, activation=nn.ReLU6, upsample_at_end=True):
         """
         A general implementation of the network architecture presented in the Auto Deeplab paper
         :param layout: A list of integers representing the y coordinate of a cell in the diagram used in the paper (zero-indexed)
@@ -40,9 +40,12 @@ class AutoDeeplab(nn.Module):
         #    nn.Conv2d(64, 128, 3, stride=2, padding=1),
         #).cuda()
 
+        prev_channels = 64
         channels = 128
         assert layout[0] == 2
         for i, depth in enumerate(layout):
+            curr_cell = cell(channels, prev_channels, channels).cuda()
+            prev_channels = channels
             layer = []
             # todo dilation?
 
@@ -60,7 +63,7 @@ class AutoDeeplab(nn.Module):
                     channels = channels // 2
 
             # The cell is held outside the Sequential as it needs two arguments, while Sequential only accepts one
-            self.cells.append((cell(channels, channels), nn.Sequential(*layer).cuda()))
+            self.cells.append((curr_cell, nn.Sequential(*layer).cuda()))
 
         # Pool, then reduce channels to the desired value
         self.pool = nn.Sequential(
@@ -94,5 +97,6 @@ if __name__ == '__main__':
     layout = [2, 2, 2, 2, 3, 4, 3, 4, 4, 5, 5, 4, 3]
     model = AutoDeeplab(3, 3, layout, layers.Cell)
     print(model)
+    print(model.cells)
     x = torch.rand((1, 3, 100, 100)).cuda()
     model(x)

@@ -36,34 +36,38 @@ class SeparableConv2d(nn.Module):
 
 
 class Cell(nn.Module):
-    def __init__(self, in_channels, out_channels, dilation=1, activation=nn.ReLU6, bn=nn.BatchNorm2d):
+    def __init__(self, in_channels_h1, in_channels_h2, out_channels, dilation=1, activation=nn.ReLU6, bn=nn.BatchNorm2d):
         """
         Initialization of inverted residual block
-        :param in_channels: number of input channels
+        :param in_channels_h1: number of input channels in h-1
+        :param in_channels_h2: number of input channels in h-2
         :param out_channels: number of output channels
         :param t: the expansion factor of block
         :param s: stride of the first convolution
         :param dilation: dilation rate of 3*3 depthwise conv
         """
         super(Cell, self).__init__()
-        self.in_ = in_channels
+        self.in_ = in_channels_h1
         self.out_ = out_channels
         self.activation = activation
 
+        if in_channels_h1 != in_channels_h2:
+            self.reduce = FactorizedReduce(in_channels_h2, in_channels_h1)
+
         self.atr3x3 = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=(3, 3), dilation=dilation, bias=False),
+            nn.Conv2d(in_channels_h1, out_channels, kernel_size=(3, 3), dilation=dilation, bias=False),
             nn.BatchNorm2d(out_channels),
             self.activation(),
         )
         self.atr5x5 = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=(5, 5), dilation=dilation, bias=False),
+            nn.Conv2d(in_channels_h1, out_channels, kernel_size=(5, 5), dilation=dilation, bias=False),
             nn.BatchNorm2d(out_channels),
             self.activation(),
         )
 
-        self.sep3x3 = nn.Sequential(SeparableConv2d(in_channels, out_channels, kernel_size=3, batch_norm=bn),
+        self.sep3x3 = nn.Sequential(SeparableConv2d(in_channels_h1, out_channels, kernel_size=3, batch_norm=bn),
                                     activation())
-        self.sep5x5 = nn.Sequential(SeparableConv2d(in_channels, out_channels, kernel_size=5, batch_norm=bn),
+        self.sep5x5 = nn.Sequential(SeparableConv2d(in_channels_h1, out_channels, kernel_size=5, batch_norm=bn),
                                     activation())
 
     def forward(self, h_1, h_2):
@@ -73,6 +77,9 @@ class Cell(nn.Module):
         :param h_2:
         :return:
         """
+
+        if self.reduce is not None:
+            h_2 = self.reduce(h_2)
 
         top = self.atr5x5(h_2) + self.sep3x3(h_1)
         bottom = self.atr3x3(h_1) + self.sep3x3(h_2)
@@ -119,3 +126,23 @@ class ASPP(nn.Module):
 
         # concate
         concate = torch.cat([conv11, conv33_1, conv33_2, conv33_3, upsample], dim=1)
+
+
+# Based on quark0/darts on github
+class FactorizedReduce(nn.Module):
+
+  def __init__(self, C_in, C_out, affine=True):
+    super(FactorizedReduce, self).__init__()
+    assert C_out % 2 == 0
+    self.relu = nn.ReLU(inplace=False)
+    self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
+    self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
+    self.bn = nn.BatchNorm2d(C_out, affine=affine)
+
+  def forward(self, x):
+    x = self.relu(x)
+    padded = F.pad(x, (0, 1, 0, 1), "constant", 0)
+    path2 = self.conv_2(padded[:, :, 1:, 1:])
+    out = torch.cat([self.conv_1(x), path2], dim=1)
+    out = self.bn(out)
+    return out
