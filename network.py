@@ -98,5 +98,5 @@ if __name__ == '__main__':
     model = AutoDeeplab(3, 3, layout, layers.Cell)
     print(model)
     print(model.cells)
-    x = torch.rand((1, 3, 100, 100)).cuda()
+    x = torch.rand((2, 3, 128, 128)).cuda()
     model(x)

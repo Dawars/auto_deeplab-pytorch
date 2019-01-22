@@ -70,14 +70,41 @@ class Cell(nn.Module):
         self.out_ = out_channels
         self.activation = activation
 
-        if in_channels_h1 != in_channels_h2:
-            self.reduce = FactorizedReduce(in_channels_h2, in_channels_h1)
+        if in_channels_h1 > in_channels_h2:
+            self.preprocess = FactorizedReduce(in_channels_h2, in_channels_h1)
+        elif in_channels_h1 < in_channels_h2:
+            # todo check this
+            self.preprocess = nn.ConvTranspose2d(in_channels_h2, in_channels_h1, 3, stride=2, padding=1, output_padding=1)
+        else:
+            self.preprocess = None
 
-        self.atr3x3 = DilConv(in_channels_h1, out_channels, 3, 1, 1, dilation)
-        self.atr5x5 = DilConv(in_channels_h1, out_channels, 5, 1, 2, dilation)
+        #self.atr3x3 = DilConv(in_channels_h1, out_channels, 3, 1, 1, dilation)
+        #self.atr5x5 = DilConv(in_channels_h1, out_channels, 5, 1, 2, dilation)
 
-        self.sep3x3 = SepConv(in_channels_h1, out_channels, 3, 1, 1)
-        self.sep5x5 = SepConv(in_channels_h1, out_channels, 5, 1, 2)
+        #self.sep3x3 = SepConv(in_channels_h1, out_channels, 3, 1, 1)
+        #self.sep5x5 = SepConv(in_channels_h1, out_channels, 5, 1, 2)
+
+        # Top 1
+        self.top1_atr5x5 = DilConv(in_channels_h1, in_channels_h1, 5, 1, 2, dilation)
+        self.top1_sep3x3 = SepConv(in_channels_h1, in_channels_h1, 3, 1, 1)
+
+        # Top 2
+        self.top2_sep5x5_1 = SepConv(in_channels_h1, in_channels_h1, 5, 1, 2)
+        self.top2_sep5x5_2 = SepConv(in_channels_h1, in_channels_h1, 5, 1, 2)
+
+        # Middle
+        self.middle_sep3x3_1 = SepConv(in_channels_h1, in_channels_h1, 3, 1, 1)
+        self.middle_sep3x3_2 = SepConv(in_channels_h1, in_channels_h1, 3, 1, 1)
+
+        # Bottom 1
+        self.bottom1_atr3x3 = DilConv(in_channels_h1, in_channels_h1, 3, 1, 1, dilation)
+        self.bottom1_sep3x3 = SepConv(in_channels_h1, in_channels_h1, 3, 1, 1)
+
+        # Bottom 2
+        self.bottom2_atr5x5 = DilConv(in_channels_h1, in_channels_h1, 5, 1, 2, dilation)
+        self.bottom2_sep5x5 = SepConv(in_channels_h1, in_channels_h1, 5, 1, 2)
+
+        self.concate_conv = nn.Conv2d(in_channels_h1*5, out_channels, 1)
 
     def forward(self, h_1, h_2):
         """
@@ -87,19 +114,19 @@ class Cell(nn.Module):
         :return:
         """
 
-        if self.reduce is not None:
-            h_2 = self.reduce(h_2)
+        if self.preprocess is not None:
+            h_2 = self.preprocess(h_2)
 
-        top = self.atr5x5(h_2) + self.sep3x3(h_1)
-        bottom = self.atr3x3(h_1) + self.sep3x3(h_2)
-        middle = self.sep3x3(bottom) + self.sep3x3(h_2)
+        top1 = self.top1_atr5x5(h_2) + self.top1_sep3x3(h_1)
+        bottom1 = self.bottom1_atr3x3(h_1) + self.bottom1_sep3x3(h_2)
+        middle = self.middle_sep3x3_1(h_2) + self.middle_sep3x3_2(bottom1)
 
-        top2 = self.sep5x5(top) + self.sep5x5(middle)
-        bottom2 = self.atr5x5(top2) + self.sep5x5(bottom)
+        top2 = self.top2_sep5x5_1(top1) + self.top2_sep5x5_2(middle)
+        bottom2 = self.bottom2_atr5x5(top2) + self.bottom2_sep5x5(bottom1)
 
-        concat = torch.cat([top, top2, middle, bottom2, bottom])
+        concat = torch.cat([top1, top2, middle, bottom2, bottom1], dim=1)
 
-        return concat
+        return self.concate_conv(concat)
 
 
 class ASPP(nn.Module):
@@ -136,6 +163,8 @@ class ASPP(nn.Module):
 
         # concate
         concate = torch.cat([conv11, conv33_1, conv33_2, conv33_3, upsample], dim=1)
+
+        return self.concate_conv(concate)
 
 
 # Based on quark0/darts on github
