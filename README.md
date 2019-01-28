@@ -4,6 +4,7 @@ This is a PyTorch implementation of the architecture found by the Hierarchical N
 
 TODO:
 - [x]  Cell architecture
-- [ ]  Module architecture
-- [ ]  Evaluation in TensorBoard
+- [x]  Module architecture
+- [x]  Evaluation in TensorBoard
+- [x]  Training with LFW (http://vis-www.cs.umass.edu/lfw/)
 - [ ]  Training with SURREAL
